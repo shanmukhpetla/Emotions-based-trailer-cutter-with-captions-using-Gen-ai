@@ -1,113 +1,87 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List
 import shutil
 import os
-import zipfile
-from services import extract_reel, generate_thumbnail, generate_caption, create_multiple_highlight_reels
+import json
+from services import (
+    create_trailer,
+    process_video_segments,
+    detect_scenes,
+    analyze_scene_emotions,
+    generate_caption,
+    extract_clips_with_captions
+)
 
-app = FastAPI()
+app = FastAPI(title="Movie Trailer Generator API")
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-class ReelRequest(BaseModel):
-    start_time: float
-    end_time: float
-
-class ThumbnailRequest(BaseModel):
-    timestamp: float
-
-class CaptionRequest(BaseModel):
-    prompt_overrides: str = None
-
-class HighlightRequest(BaseModel):
-    target_duration: int = 60
+class CaptionConfig(BaseModel):
+    font: str = "Arial"
+    font_size: int = 24
+    color: str = "white"
+    bg_color: str = "black"
+    position: str = "bottom"
 
 def save_upload_file(upload_file: UploadFile) -> str:
     if not upload_file.content_type.startswith('video/'):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a video file.")
-    
     file_path = os.path.join(UPLOAD_DIR, upload_file.filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(upload_file.file, buffer)
     return file_path
 
-@app.post("/reel/")
-async def create_reel(file: UploadFile = File(...), start_time: float = Form(...), end_time: float = Form(...)):
-    input_path = save_upload_file(file)
-    output_path = os.path.join(OUTPUT_DIR, "reel.mp4")
-    
-    try:
-        if start_time < 0:
-            raise HTTPException(status_code=400, detail="Start time cannot be negative")
-        result_path = extract_reel(input_path, start_time, end_time, output_path)
-        return FileResponse(result_path, media_type="video/mp4", filename="reel.mp4")
-    finally:
-        if os.path.exists(input_path):
-            os.remove(input_path)
-
-@app.post("/thumbnail/")
-async def create_thumbnail(file: UploadFile = File(...), timestamp: float = Form(...)):
-    input_path = save_upload_file(file)
-    output_path = os.path.join(OUTPUT_DIR, "thumbnail.jpg")
-    
-    try:
-        if timestamp < 0:
-            raise HTTPException(status_code=400, detail="Timestamp cannot be negative")
-        result_path = generate_thumbnail(input_path, timestamp, output_path)
-        return FileResponse(result_path, media_type="image/jpeg", filename="thumbnail.jpg")
-    finally:
-        if os.path.exists(input_path):
-            os.remove(input_path)
-
-@app.post("/caption/")
-async def create_caption(file: UploadFile = File(...), prompt_overrides: str = Form(None)):
-    input_path = save_upload_file(file)
-    
-    try:
-        caption = generate_caption(input_path, prompt_overrides)
-        return {"caption": caption}
-    finally:
-        if os.path.exists(input_path):
-            os.remove(input_path)
-
-@app.post("/highlight-reels/")
-async def create_highlight_reels(
+@app.post("/trailer/generate")
+async def generate_trailer(
     file: UploadFile = File(...),
-    target_duration: float = Form(60.0),
-    num_reels: int = Form(5)
+    scene_types: List[str] = Form(["emotion", "fight"]),
+    caption_font: str = Form("Arial"),
+    caption_size: int = Form(24),
+    caption_color: str = Form("white"),
+    caption_bg: str = Form("black"),
+    caption_position: str = Form("bottom"),
+    duration: int = Form(90),
+    style: str = Form("cinematic")
 ):
-    if target_duration <= 0:
-        raise HTTPException(status_code=400, detail="Target duration must be positive")
-    if num_reels <= 0 or num_reels > 10:
-        raise HTTPException(status_code=400, detail="Number of reels must be between 1 and 10")
+    caption_config = CaptionConfig(
+        font=caption_font,
+        font_size=caption_size,
+        color=caption_color,
+        bg_color=caption_bg,
+        position=caption_position
+    )
     
     input_path = save_upload_file(file)
-    output_dir = OUTPUT_DIR
-    
     try:
-        result_paths = create_multiple_highlight_reels(
+        result_path = create_trailer(
             input_path,
-            output_dir,
-            target_duration=target_duration,
-            num_reels=num_reels
+            scene_types=scene_types,
+            caption_style=caption_config.dict(),
+            max_duration=duration
         )
         
-        zip_path = os.path.join(output_dir, "highlight_reels.zip")
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for path in result_paths:
-                zipf.write(path, os.path.basename(path))
-                # Clean up individual reel files after adding to zip
-                os.remove(path)
-                
-        return FileResponse(
-            zip_path,
-            media_type="application/zip",
-            filename="highlight_reels.zip"
-        )
+        if result_path:
+            return FileResponse(
+                result_path,
+                media_type="video/mp4",
+                filename=f"trailer_{style}_{duration}s.mp4"
+            )
+        raise HTTPException(status_code=500, detail="Failed to generate trailer")
     finally:
         if os.path.exists(input_path):
             os.remove(input_path)
