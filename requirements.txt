@@ -12,3 +12,4 @@ imageio==2.31.5
 imageio-ffmpeg==0.4.9
 proglog==0.1.10
 tqdm==4.66.1
+scenedetect
