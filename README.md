@@ -4,10 +4,9 @@
 Trailer is an automated system that extracts short, engaging clips from long-form videos, generates captions, and creates social media-ready content. This project leverages AI to streamline content creation, making it easier for creators to repurpose their videos.
 
 ## ✨ Features
-- **Extract Highlights**: Automatically generate 5 short clips from a long-form video
+- **Extract Highlights**: Automatically generate traoler with caption from given input based emotions
 - **Customizable Clips**: Users can override default clip selections
 - **AI-Generated Captions**: Automatic captions for each clip
-- **Thumbnail Generation**: Generate attention-grabbing thumbnails
 - **FastAPI Backend**: Provides APIs for video processing
 - **Command-line Script**: Automate API calls from a terminal
 
